@@ -970,15 +970,33 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
     }
   };
 
+  let offlineNodeCounter = 0;
+  const OFFLINE_YIELD_EVERY = 10;
+
   const flushBufferIfLastOfflineNode = (
     node: BinaryNode,
     identifier: string,
     exec: (node: BinaryNode) => Promise<any>
   ) => {
-    const task = exec(node).catch(err => onUnexpectedError(err, identifier));
     const offline = node.attrs.offline;
+    let task: Promise<any>;
     if (offline) {
+      offlineNodeCounter += 1;
+      // A cada N stanzas offline cedemos o event loop. Sem isso, o processingMutex
+      // serializa decrypt + sendReceipt + upsertMessage de 16k mensagens em uma
+      // cadeia de microtasks que bloqueia keep-alive das outras sessoes do mesmo
+      // processo, derrubando-as por timeout no WhatsApp.
+      if (offlineNodeCounter % OFFLINE_YIELD_EVERY === 0) {
+        task = new Promise<void>(resolve => setImmediate(resolve))
+          .then(() => exec(node))
+          .catch(err => onUnexpectedError(err, identifier));
+      } else {
+        task = exec(node).catch(err => onUnexpectedError(err, identifier));
+      }
       ev.processInBuffer(task);
+    } else {
+      offlineNodeCounter = 0;
+      exec(node).catch(err => onUnexpectedError(err, identifier));
     }
   };
 

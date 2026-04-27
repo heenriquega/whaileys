@@ -1013,19 +1013,56 @@ export const makeChatsSocket = (config: SocketConfig) => {
     }
   });
 
-  ev.on("connection.update", ({ connection }) => {
-    if (connection === "open") {
-      if (fireInitQueries) {
-        executeInitQueries().catch(error =>
-          onUnexpectedError(error, "init queries")
+  let initQueriesFired = false;
+  let initQueriesFallbackTimer: NodeJS.Timeout | null = null;
+
+  const fireInitQueriesIfNeeded = (reason: string) => {
+    if (initQueriesFired || !fireInitQueries) {
+      return;
+    }
+    initQueriesFired = true;
+    if (initQueriesFallbackTimer) {
+      clearTimeout(initQueriesFallbackTimer);
+      initQueriesFallbackTimer = null;
+    }
+    logger.info({ reason }, "firing init queries (deferred)");
+    executeInitQueries().catch(error =>
+      onUnexpectedError(error, "init queries")
+    );
+  };
+
+  ev.on(
+    "connection.update",
+    ({ connection, receivedPendingNotifications }) => {
+      if (connection === "open") {
+        sendPresenceUpdate(
+          markOnlineOnConnect ? "available" : "unavailable"
+        ).catch(error =>
+          onUnexpectedError(error, "presence update requests")
+        );
+        // Disparar init queries em "open" causa Timed Out quando ha muitas
+        // mensagens offline pendentes — o servidor processa o drain antes de
+        // responder os IQs (fetchProps/fetchBlocklist/fetchPrivacySettings).
+        // Adiamos para receivedPendingNotifications, com fallback de seguranca.
+        initQueriesFallbackTimer = setTimeout(
+          () => fireInitQueriesIfNeeded("connection-open-fallback"),
+          180000
         );
       }
 
-      sendPresenceUpdate(
-        markOnlineOnConnect ? "available" : "unavailable"
-      ).catch(error => onUnexpectedError(error, "presence update requests"));
+      if (receivedPendingNotifications === true) {
+        fireInitQueriesIfNeeded("offline-drained");
+      }
+
+      if (connection === "close") {
+        initQueriesFired = false;
+        if (initQueriesFallbackTimer) {
+          clearTimeout(initQueriesFallbackTimer);
+          initQueriesFallbackTimer = null;
+        }
+      }
     }
-  });
+  );
 
   return {
     ...sock,
