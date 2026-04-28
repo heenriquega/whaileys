@@ -71,6 +71,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
   let privacySettings: { [_: string]: string } | undefined;
   /** this mutex ensures that the notifications (receipts, messages etc.) are processed in order */
   const processingMutex = makeMutex();
+  const offlineMutex = makeMutex();
 
   /** helper function to fetch the given app state sync key */
   const getAppStateSyncKey = async (keyId: string) => {
@@ -1067,6 +1068,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
   return {
     ...sock,
     processingMutex,
+    offlineMutex,
     fetchPrivacySettings,
     upsertMessage,
     appPatch,

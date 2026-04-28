@@ -67,6 +67,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
     ws,
     query,
     processingMutex,
+    offlineMutex,
     upsertMessage,
     resyncAppState,
     onUnexpectedError,
@@ -85,6 +86,41 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
   const callOfferData: { [id: string]: WACallEvent } = {};
 
   let sendActiveReceipts = false;
+
+  // Roteia stanzas offline para offlineMutex e live para processingMutex.
+  // Permite que mensagens novas (live) nao fiquem presas atras de drains
+  // pesados de offline backlog (16k+ mensagens acumuladas).
+  let offlineRoutedCount = 0;
+  let liveRoutedCount = 0;
+  const pickMutex = (node: BinaryNode, identifier: string) => {
+    const isOffline = !!node.attrs.offline;
+    if (isOffline) {
+      offlineRoutedCount += 1;
+      if (offlineRoutedCount === 1 || offlineRoutedCount % 100 === 0) {
+        logger.info(
+          {
+            count: offlineRoutedCount,
+            identifier,
+            jid: node.attrs.from
+          },
+          "[mutex] offline stanza routed"
+        );
+      }
+      return offlineMutex;
+    }
+    liveRoutedCount += 1;
+    if (liveRoutedCount % 100 === 0) {
+      logger.info(
+        {
+          count: liveRoutedCount,
+          identifier,
+          jid: node.attrs.from
+        },
+        "[mutex] live stanza routed"
+      );
+    }
+    return processingMutex;
+  };
 
   const sendMessageAck = async ({ tag, attrs, content }: BinaryNode) => {
     const stanza: BinaryNode = {
@@ -658,7 +694,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
     try {
       await Promise.all([
-        processingMutex.mutex(async () => {
+        pickMutex(node, "receipt").mutex(async () => {
           const status = getStatusFromReceiptType(attrs.type);
           if (
             typeof status !== "undefined" &&
@@ -740,7 +776,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
     try {
       await Promise.all([
-        processingMutex.mutex(async () => {
+        pickMutex(node, "notification").mutex(async () => {
           const msg = await processNotification(node);
           if (msg) {
             const fromMe = areJidsSameUser(
@@ -785,7 +821,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
         decryptionTask
       } = decodeMessageStanza(node, authState);
       await Promise.all([
-        processingMutex.mutex(async () => {
+        pickMutex(node, "message").mutex(async () => {
           await decryptionTask;
           // message failed to decrypt
           if (
@@ -1005,7 +1041,14 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
     const child = getBinaryNodeChild(node, "offline");
     const offlineNotifs = +(child?.attrs.count || 0);
 
-    logger.info(`handled ${offlineNotifs} offline messages/notifications`);
+    logger.info(
+      {
+        offlineNotifs,
+        offlineRouted: offlineRoutedCount,
+        liveRoutedDuringDrain: liveRoutedCount
+      },
+      `[mutex] offline drain finished — handled ${offlineNotifs} offline messages/notifications`
+    );
     await ev.flush();
 
     ev.emit("connection.update", { receivedPendingNotifications: true });
