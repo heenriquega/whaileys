@@ -33,6 +33,18 @@ export type BaileysEventMap = {
     isLatest: boolean;
     progress?: number | null;
     syncType?: proto.HistorySync.HistorySyncType;
+    /** Mapping LID↔PN extraído do HistorySync (proto.HistorySync.phoneNumberToLidMappings) */
+    phoneNumberToLidMappings?: { pnJid?: string | null; lidJid?: string | null }[];
+    /** Dados crus de cada conversation do sync (pnJid/lidJid/displayName/username) */
+    historyConversations?: {
+      id?: string | null;
+      name?: string | null;
+      displayName?: string | null;
+      username?: string | null;
+      pnJid?: string | null;
+      lidJid?: string | null;
+      accountLid?: string | null;
+    }[];
   };
   /** upsert chats */
   "chats.upsert": Chat[];
@@ -101,6 +113,16 @@ export type BufferedEventData = {
     messages: { [uqId: string]: WAMessage };
     empty: boolean;
     isLatest: boolean;
+    phoneNumberToLidMappings?: { pnJid?: string | null; lidJid?: string | null }[];
+    historyConversations?: {
+      id?: string | null;
+      name?: string | null;
+      displayName?: string | null;
+      username?: string | null;
+      pnJid?: string | null;
+      lidJid?: string | null;
+      accountLid?: string | null;
+    }[];
   };
   chatUpserts: { [jid: string]: Chat };
   chatUpdates: { [jid: string]: ChatUpdate };

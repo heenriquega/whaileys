@@ -211,7 +211,9 @@ const makeBufferData = (): BufferedEventData => {
       messages: {},
       contacts: {},
       isLatest: false,
-      empty: true
+      empty: true,
+      phoneNumberToLidMappings: undefined,
+      historyConversations: undefined
     },
     chatUpserts: {},
     chatUpdates: {},
@@ -277,6 +279,22 @@ function append<E extends BufferableEvent>(
       data.historySets.empty = false;
       data.historySets.isLatest =
         eventData.isLatest || data.historySets.isLatest;
+
+      // Preservar campos extras de mapping LID↔PN entre buffers consecutivos.
+      if (eventData.phoneNumberToLidMappings?.length) {
+        data.historySets.phoneNumberToLidMappings =
+          data.historySets.phoneNumberToLidMappings || [];
+        data.historySets.phoneNumberToLidMappings.push(
+          ...eventData.phoneNumberToLidMappings
+        );
+      }
+      if (eventData.historyConversations?.length) {
+        data.historySets.historyConversations =
+          data.historySets.historyConversations || [];
+        data.historySets.historyConversations.push(
+          ...eventData.historyConversations
+        );
+      }
 
       break;
     case "chats.upsert":
@@ -589,7 +607,9 @@ function consolidateEvents(data: BufferedEventData) {
       chats: Object.values(data.historySets.chats),
       messages: Object.values(data.historySets.messages),
       contacts: Object.values(data.historySets.contacts),
-      isLatest: data.historySets.isLatest
+      isLatest: data.historySets.isLatest,
+      phoneNumberToLidMappings: data.historySets.phoneNumberToLidMappings,
+      historyConversations: data.historySets.historyConversations
     };
   }
 

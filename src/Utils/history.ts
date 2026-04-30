@@ -31,18 +31,53 @@ export const downloadHistory = async (
   return syncData;
 };
 
+export interface HistoryConversation {
+  id?: string | null
+  name?: string | null
+  displayName?: string | null
+  username?: string | null
+  pnJid?: string | null
+  lidJid?: string | null
+  accountLid?: string | null
+}
+
 export const processHistoryMessage = (item: proto.IHistorySync) => {
   const messages: proto.IWebMessageInfo[] = [];
   const contacts: Contact[] = [];
   const chats: Chat[] = [];
+  // Array auxiliar com dados crus de cada conversation, expondo
+  // pnJid/lidJid/displayName/username — campos que o proto traz mas a
+  // implementação original descarta.
+  const historyConversations: HistoryConversation[] = [];
 
   switch (item.syncType) {
     case proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP:
     case proto.HistorySync.HistorySyncType.RECENT:
     case proto.HistorySync.HistorySyncType.FULL:
     case proto.HistorySync.HistorySyncType.ON_DEMAND:
-      for (const chat of item.conversations! as Chat[]) {
-        contacts.push({ id: chat.id, name: chat.name || undefined });
+      for (const chat of item.conversations! as (Chat & {
+        displayName?: string | null
+        username?: string | null
+        pnJid?: string | null
+        lidJid?: string | null
+        accountLid?: string | null
+      })[]) {
+        contacts.push({
+          id: chat.id,
+          name: chat.name || chat.displayName || undefined
+        });
+
+        if (chat.pnJid || chat.lidJid || chat.displayName || chat.username) {
+          historyConversations.push({
+            id: chat.id,
+            name: chat.name || undefined,
+            displayName: chat.displayName || undefined,
+            username: chat.username || undefined,
+            pnJid: chat.pnJid || undefined,
+            lidJid: chat.lidJid || undefined,
+            accountLid: chat.accountLid || undefined
+          });
+        }
 
         const msgs = chat.messages || [];
         delete chat.messages;
@@ -93,12 +128,17 @@ export const processHistoryMessage = (item: proto.IHistorySync) => {
       break;
   }
 
+  // Expor mapping LID↔PN do HistorySync (proto.HistorySync.phoneNumberToLidMappings).
+  const phoneNumberToLidMappings = item.phoneNumberToLidMappings || [];
+
   return {
     chats,
     contacts,
     messages,
     syncType: item.syncType,
-    progress: item.progress
+    progress: item.progress,
+    phoneNumberToLidMappings,
+    historyConversations
   };
 };
 
