@@ -232,6 +232,42 @@ export const makeChatsSocket = (config: SocketConfig) => {
       .filter(item => item.exists);
   };
 
+  /**
+   * Resolve LIDs em PN/JID. Diferente de onWhatsApp (que vai PN→LID),
+   * essa query envia o LID em <lid> e pede de volta o <contact> com o
+   * número de telefone.
+   */
+  const onWhatsAppByLid = async (...lids: string[]) => {
+    const results = await interactiveQuery(
+      lids.map(lid => ({
+        tag: "user",
+        attrs: {},
+        content: [
+          {
+            tag: "lid",
+            attrs: {},
+            content: lid
+          }
+        ]
+      })),
+      { tag: "lid", attrs: {} },
+      { tag: "contact", attrs: {} }
+    );
+
+    return results
+      .map(user => {
+        const contact = getBinaryNodeChild(user, "contact");
+        const lid = getBinaryNodeChild(user, "lid");
+        return {
+          exists: !!contact?.attrs?.type,
+          jid: user.attrs.jid,
+          lid: lid?.attrs?.val,
+          phoneNumber: contact?.content?.toString()?.replace(/^\+/, "")
+        };
+      })
+      .filter(item => item.exists);
+  };
+
   const fetchStatus = async (jid: string) => {
     const [result] = await interactiveQuery([{ tag: "user", attrs: { jid } }], {
       tag: "status",
@@ -1076,6 +1112,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
     presenceSubscribe,
     profilePictureUrl,
     onWhatsApp,
+    onWhatsAppByLid,
     fetchBlocklist,
     fetchStatus,
     updateCallPrivacy,
